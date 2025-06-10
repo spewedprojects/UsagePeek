@@ -12,8 +12,8 @@ android {
         applicationId = "com.gratus.usagepeek"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.0.b"
+        versionCode = 3
+        versionName = "1.0.0" // X. Major + Y. minor + Z. patch
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -52,6 +52,7 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -61,4 +62,6 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx) // for midnight reset
     // coroutines library
     implementation(libs.kotlinx.coroutines.android)
+    // DataStore dependency; a better alternative to SharedPreferences
+    implementation(libs.androidx.datastore.preferences)
 }

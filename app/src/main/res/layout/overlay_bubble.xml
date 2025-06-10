@@ -3,9 +3,9 @@
     android:id="@+id/bubbleText"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:padding="6dp"
     android:text="00:00"
+    android:textStyle="bold"
     android:textColor="@android:color/white"
-    android:background="#AA000000"
+    android:background="@drawable/timer_background"
     android:textSize="12sp"
-    android:elevation="4dp" />
+    android:elevation="10dp" />

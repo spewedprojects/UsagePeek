@@ -14,7 +14,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import kotlinx.coroutines.Dispatchers
 import android.app.usage.UsageEvents              // NEW
+import androidx.core.view.isVisible
 import kotlinx.coroutines.*                        // NEW
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import java.util.concurrent.ConcurrentHashMap     // NEW
 
 
@@ -28,6 +31,7 @@ class OverlayService : Service() {
     private var initialY = 0
     private var initialTouchX = 0f
     private var initialTouchY = 0f
+    private var overlayEnabledPkgs: Set<String> = emptySet()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -49,6 +53,9 @@ class OverlayService : Service() {
 
         // start the 1-second coroutine *once*
         startTimerLoop()
+
+        AppPrefs.enabledPackages(this).onEach { overlayEnabledPkgs = it }
+            .launchIn(serviceScope)      // needs kotlinx-coroutines-core already present
 
         // ---------- 3) drag handling --------------
         val params = WindowManager.LayoutParams(
@@ -109,6 +116,13 @@ class OverlayService : Service() {
                     val tv = bubbleView.findViewById<TextView>(R.id.bubbleText)
                     val secs = usageTotals[nowPkg] ?: 0L
                     tv.text  = formatHMS(secs)
+                    val show = nowPkg in overlayEnabledPkgs
+                    bubbleView.isVisible = show              // import androidx.core.view.isVisible
+                    if (show) {
+                        val secs = usageTotals[nowPkg] ?: 0L
+                        bubbleView.findViewById<TextView>(R.id.bubbleText).text = formatHMS(secs)
+                    }
+
                 }
 
                 delay(1000)       // 1-second cadence keeps CPU <1 %
