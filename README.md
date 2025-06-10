@@ -3,9 +3,11 @@
 
 ***
 
-## (0.0.b) 10/06/2025
-- Installs, Opens, takes permissions.
-- App detects usage correctly and timer reflects the time accordingly.
+## (1.0.0) 11/06/2025
+- Using DataStore via AppPrefs to svae the enable disable button state for each app.
+- Timer works on selected apps only
+- No memory yet.
+- Changed the shape and design of bubble. Minor font changes.
 
 # ScreenTime Overlay
 
