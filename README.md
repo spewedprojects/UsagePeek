@@ -3,7 +3,7 @@
 
 ***
 
-## (1.0.0) 11/06/2025
+## (2.0.a) 11/06/2025
 - Using DataStore via AppPrefs to svae the enable disable button state for each app.
 - Timer works on selected apps only
 - No memory yet.

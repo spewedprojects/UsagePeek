@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- share the internal database file read-only -->
+    <files-path name="db" path=".."/>
+    <!-- or share the whole /databases folder -->
+    <database-path name="roomdb" path="."/>
+</paths>

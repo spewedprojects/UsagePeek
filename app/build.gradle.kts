@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose.compiler)
+    alias(libs.plugins.google.ksp)
 }
 
 android {
@@ -12,8 +13,8 @@ android {
         applicationId = "com.gratus.usagepeek"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.0" // X. Major + Y. minor + Z. patch
+        versionCode = 4
+        versionName = "2.0.a" // X. Major + Y. minor + Z. patch
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -64,4 +65,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     // DataStore dependency; a better alternative to SharedPreferences
     implementation(libs.androidx.datastore.preferences)
+
+    implementation(libs.androidx.room.runtime)
+    ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.room.ktx)   // Flow + coroutines
 }

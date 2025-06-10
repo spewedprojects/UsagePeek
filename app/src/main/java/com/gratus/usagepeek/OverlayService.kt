@@ -13,12 +13,26 @@ import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import kotlinx.coroutines.Dispatchers
-import android.app.usage.UsageEvents              // NEW
+import android.app.usage.UsageEvents
 import androidx.core.view.isVisible
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.gratus.usagepeek.data.AppEntity
+import com.gratus.usagepeek.data.SessionEntity
+import com.gratus.usagepeek.data.UsageDao
+import com.gratus.usagepeek.data.UsageDb
+import com.gratus.usagepeek.data.ResetWorker
 import kotlinx.coroutines.*                        // NEW
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import java.text.SimpleDateFormat
+import java.time.Duration
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap     // NEW
+import java.util.concurrent.TimeUnit
 
 
 class OverlayService : Service() {
@@ -32,6 +46,9 @@ class OverlayService : Service() {
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var overlayEnabledPkgs: Set<String> = emptySet()
+    // Room database related
+    private lateinit var dao: UsageDao
+    private var lastStartTs = System.currentTimeMillis()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -51,6 +68,7 @@ class OverlayService : Service() {
         bubbleView = LayoutInflater.from(this)
             .inflate(R.layout.overlay_bubble, null)
 
+        dao = UsageDb.get(this).dao()
         // start the 1-second coroutine *once*
         startTimerLoop()
 
@@ -68,6 +86,19 @@ class OverlayService : Service() {
         )
         params.x = 0
         params.y = 200
+
+        // Schedule it (reset-worker) once per day.
+        val request = PeriodicWorkRequestBuilder<ResetWorker>(1, TimeUnit.DAYS)
+            .setInitialDelay(
+                Duration.between(
+                    LocalDateTime.now(),
+                    LocalDateTime.now().with(LocalTime.MAX)
+                )
+            )
+            .build()
+        WorkManager.getInstance(this)
+            .enqueueUniquePeriodicWork("daily-reset", ExistingPeriodicWorkPolicy.KEEP, request)
+
 
         bubbleView.setOnTouchListener { _, event ->
             when (event.action) {
@@ -102,10 +133,25 @@ class OverlayService : Service() {
             while (isActive) {
                 val nowPkg = foregroundPackage(usageStats, lastPackage)
                 val now    = SystemClock.elapsedRealtime()
+                val delta  = ((now - lastTick) / 1000).toInt()
 
-                val delta  = (now - lastTick) / 1000     // seconds since last loop
                 if (delta > 0 && lastPackage.isNotBlank()) {
-                    usageTotals.merge(lastPackage, delta) { a, b -> a + b }
+                    usageTotals.merge(lastPackage, delta.toLong()) { a, b -> a + b }
+
+                    serviceScope.launch {
+                        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                            .format(System.currentTimeMillis())
+                        dao.ensureAppRow(AppEntity(lastPackage, lastPackage))   // label later
+                        dao.insertSession(
+                            SessionEntity(
+                                packageName = lastPackage,
+                                startTs = lastTick,
+                                endTs   = now,
+                                durationSec = delta
+                            )
+                        )
+                        dao.upsertDaily(lastPackage, today, delta)
+                    }
                 }
 
                 lastTick    = now

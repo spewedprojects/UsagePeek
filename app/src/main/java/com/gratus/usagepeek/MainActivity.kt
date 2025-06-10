@@ -1,9 +1,18 @@
 package com.gratus.usagepeek
 
+import android.Manifest
+import android.app.Activity
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -33,14 +42,19 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.foundation.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.runtime.collectAsState
+import androidx.core.app.ActivityCompat
+import androidx.core.content.FileProvider
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+        if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 0)
         }
 
@@ -163,7 +177,11 @@ fun SettingsScreen() {
         }
 
 
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
 
             Button(
                 enabled = overlayGranted && !overlayRunning,
@@ -173,7 +191,7 @@ fun SettingsScreen() {
                     )
                     overlayRunning = true
                 }
-            ) { Text("Start overlay") }
+            ) { Text("Start timer") }
 
             Button(
                 enabled = overlayRunning,
@@ -182,6 +200,13 @@ fun SettingsScreen() {
                     overlayRunning = false
                 }
             ) { Text("Stop") }
+
+            Spacer(Modifier.weight(1f))                        // pushes Export to the right edge
+
+            /* export button */
+            OutlinedButton(
+                onClick = { exportDatabase(context) }
+            ) { Text("Export DB") }
         }
     }
 }
@@ -211,3 +236,68 @@ private fun PermissionCard(
         }
     }
 }
+
+private fun exportDatabase(ctx: Context) {
+    val src = ctx.getDatabasePath("usagepeek.db")
+    if (!src.exists()) {
+        Toast.makeText(ctx, "Database not found", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+        .format(System.currentTimeMillis())
+    val fileName = "usagepeek-$stamp.db"
+
+    if (Build.VERSION.SDK_INT >= 29) {
+        /* ---------- Android 10+ : MediaStore ---------- */
+        val values = ContentValues().apply {
+            put(MediaStore.Files.FileColumns.DISPLAY_NAME, fileName)
+            put(MediaStore.Files.FileColumns.MIME_TYPE, "application/octet-stream")
+            put(MediaStore.Files.FileColumns.RELATIVE_PATH, "Download/UsagePeekExports")
+            put(MediaStore.Files.FileColumns.IS_PENDING, 1)
+        }
+
+        val uri = ctx.contentResolver.insert(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+        ) ?: run {
+            Toast.makeText(ctx, "Failed to create file", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        ctx.contentResolver.openOutputStream(uri)?.use { out ->
+            src.inputStream().use { it.copyTo(out) }
+        }
+
+        values.clear()
+        values.put(MediaStore.Files.FileColumns.IS_PENDING, 0)
+        ctx.contentResolver.update(uri, values, null, null)
+
+        Toast.makeText(ctx, "Saved to Download/UsagePeekExports", Toast.LENGTH_LONG).show()
+
+    } else {
+        /* ---------- Android 9 and below ---------- */
+        if (ctx.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                (ctx as Activity),                    // call from activity context
+                arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                101
+            )
+            return
+        }
+
+        val destDir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+            "UsagePeekExports"
+        ).apply { mkdirs() }
+
+        val dest = File(destDir, fileName)
+        src.inputStream().use { it.copyTo(dest.outputStream()) }
+
+        Toast.makeText(ctx, "Saved to ${dest.relativeTo(Environment.getExternalStorageDirectory())}",
+            Toast.LENGTH_LONG).show()
+    }
+}
+
+
+
