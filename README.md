@@ -3,8 +3,9 @@
 
 ***
 
-# (0.0.a) 10/06/2025
-
+## (0.0.b) 10/06/2025
+- Installs, Opens, takes permissions.
+- App detects usage correctly and timer reflects the time accordingly.
 
 # ScreenTime Overlay
 

@@ -12,8 +12,8 @@ android {
         applicationId = "com.gratus.usagepeek"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.0.a"
+        versionCode = 2
+        versionName = "0.0.b"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -59,4 +59,6 @@ dependencies {
 
     // Usage-stats + overlay
     implementation(libs.androidx.work.runtime.ktx) // for midnight reset
+    // coroutines library
+    implementation(libs.kotlinx.coroutines.android)
 }
