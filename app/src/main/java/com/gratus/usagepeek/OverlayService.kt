@@ -127,35 +127,35 @@ class OverlayService : Service() {
         val usageStats = getSystemService(UsageStatsManager::class.java)
 
         serviceScope.launch {
-            var lastPackage = ""
+            var currentPackage = ""
             var lastTick    = SystemClock.elapsedRealtime()
 
             while (isActive) {
-                val nowPkg = foregroundPackage(usageStats, lastPackage)
+                val nowPkg = foregroundPackage(usageStats, currentPackage)
                 val now    = SystemClock.elapsedRealtime()
                 val delta  = ((now - lastTick) / 1000).toInt()
 
-                if (delta > 0 && lastPackage.isNotBlank()) {
-                    usageTotals.merge(lastPackage, delta.toLong()) { a, b -> a + b }
+                if (delta > 0 && currentPackage.isNotBlank()) {
+                    usageTotals.merge(currentPackage, delta.toLong()) { a, b -> a + b }
 
                     serviceScope.launch {
-                        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                             .format(System.currentTimeMillis())
-                        dao.ensureAppRow(AppEntity(lastPackage, lastPackage))   // label later
+                        dao.ensureAppRow(AppEntity(currentPackage, currentPackage))   // label later
                         dao.insertSession(
                             SessionEntity(
-                                packageName = lastPackage,
+                                packageName = currentPackage,
                                 startTs = lastTick,
-                                endTs   = now,
-                                durationSec = delta
+                                endTs   = lastTick + 1000,
+                                durationSec = 1
                             )
                         )
-                        dao.upsertDaily(lastPackage, today, delta)
+                        dao.upsertDaily(currentPackage, today, 1)
                     }
                 }
 
                 lastTick    = now
-                lastPackage = nowPkg
+                currentPackage = nowPkg
 
                 // update bubble only when showing on a permitted app (we'll filter later)
                 withContext(Dispatchers.Main) {

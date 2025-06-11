@@ -5,9 +5,7 @@
 
 ## (2.0.b) 11/06/2025
 - ROOM database implemented - has memory. For in-app future uses.
-- Now stores date, app usage time, opening frequency, min/avg/max session lengths - for future in-app use.
-- Has an export button to export this database - to Documents folder correctly (now).
-- All launch-able apps show up in the app list in alphabetical order.
+  - Slight changes and correction with how the records are saved in the database.
 
 # ScreenTime Overlay
 
