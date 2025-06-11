@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.foundation.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.text.font.FontWeight
 import androidx.core.app.ActivityCompat
 import androidx.core.content.FileProvider
 import java.io.File
@@ -100,7 +101,10 @@ fun SettingsScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
 
-        Text("UsagePeek", style = MaterialTheme.typography.headlineMedium)
+        Text("UsagePeek",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
 
         PermissionCard(
             title = "Display over other apps",
@@ -127,11 +131,23 @@ fun SettingsScreen() {
 
         // ---- put below Spacer(24.dp) in SettingsScreen() ----
         val pm = context.packageManager
+
         val allLaunchables = remember {
-            pm.getInstalledApplications(0)
-                .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
+            val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val infos = if (Build.VERSION.SDK_INT >= 33) {
+                pm.queryIntentActivities(
+                    launcherIntent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
+            }
+            infos
+                .map { it.activityInfo.applicationInfo }
                 .sortedBy { pm.getApplicationLabel(it).toString().lowercase() }
         }
+
 
         val enabledPkgs by AppPrefs.enabledPackages(context).collectAsState(initial = emptySet())
 
@@ -244,21 +260,21 @@ private fun exportDatabase(ctx: Context) {
         return
     }
 
-    val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+    val stamp = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.US)
         .format(System.currentTimeMillis())
-    val fileName = "usagepeek-$stamp.db"
+    val fileName = "usagepeek_$stamp.db"
 
     if (Build.VERSION.SDK_INT >= 29) {
         /* ---------- Android 10+ : MediaStore ---------- */
         val values = ContentValues().apply {
             put(MediaStore.Files.FileColumns.DISPLAY_NAME, fileName)
             put(MediaStore.Files.FileColumns.MIME_TYPE, "application/octet-stream")
-            put(MediaStore.Files.FileColumns.RELATIVE_PATH, "Download/UsagePeekExports")
+            put(MediaStore.Files.FileColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/UsagePeekExports")
             put(MediaStore.Files.FileColumns.IS_PENDING, 1)
         }
 
         val uri = ctx.contentResolver.insert(
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+            MediaStore.Files.getContentUri("external"), values
         ) ?: run {
             Toast.makeText(ctx, "Failed to create file", Toast.LENGTH_SHORT).show()
             return
@@ -272,7 +288,7 @@ private fun exportDatabase(ctx: Context) {
         values.put(MediaStore.Files.FileColumns.IS_PENDING, 0)
         ctx.contentResolver.update(uri, values, null, null)
 
-        Toast.makeText(ctx, "Saved to Download/UsagePeekExports", Toast.LENGTH_LONG).show()
+        Toast.makeText(ctx, "Saved to Documents/UsagePeekExports", Toast.LENGTH_LONG).show()
 
     } else {
         /* ---------- Android 9 and below ---------- */
