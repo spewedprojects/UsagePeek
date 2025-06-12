@@ -51,6 +51,7 @@ class OverlayService : Service() {
     private var lastStartTs = System.currentTimeMillis()
     private var currentPackage = ""
     private var sessionStart   = 0L
+    private var sessionCommitted = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -141,6 +142,28 @@ class OverlayService : Service() {
 
                     if (nowPkg == currentPackage) {
                         usageTotals.merge(nowPkg, 1L) { a, b -> a + b }
+
+                        val durationSoFar = ((now - sessionStart) / 1000).toInt()
+                        if (!sessionCommitted && durationSoFar >= 5) {
+                            sessionCommitted = true
+
+                            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                                .format(System.currentTimeMillis())
+
+                            dao.ensureAppRow(AppEntity(currentPackage, currentPackage))
+                            dao.insertSession(
+                                SessionEntity(
+                                    packageName = currentPackage,
+                                    startTs     = sessionStart,
+                                    endTs       = now,
+                                    durationSec = durationSoFar
+                                )
+                            )
+                            dao.upsertDaily(currentPackage, today, durationSoFar)
+                            withContext(Dispatchers.IO) {
+                                dao.checkpointDb(androidx.sqlite.db.SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)"))
+                            }
+                        }
                     } else {
                         val durationSec = ((now - sessionStart) / 1000).toInt()
                         if (durationSec > 0) {
@@ -159,10 +182,14 @@ class OverlayService : Service() {
                                 )
                             )
                             dao.upsertDaily(currentPackage, today, durationSec)
+                            withContext(Dispatchers.IO) {
+                                dao.checkpointDb(androidx.sqlite.db.SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)"))
+                            }
                         }
 
                         currentPackage = nowPkg
                         sessionStart   = now
+                        sessionCommitted = false
                     }
 
                     withContext(Dispatchers.Main) {
@@ -195,6 +222,9 @@ class OverlayService : Service() {
                         )
                     )
                     dao.upsertDaily(currentPackage, today, durationSec)
+                    withContext(Dispatchers.IO) {
+                        dao.checkpointDb(androidx.sqlite.db.SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)"))
+                    }
                 }
             }
         }

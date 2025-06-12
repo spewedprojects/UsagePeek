@@ -2,6 +2,7 @@ package com.gratus.usagepeek.data
 
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
+import androidx.sqlite.db.SimpleSQLiteQuery
 
 @Dao
 interface UsageDao {
@@ -51,4 +52,7 @@ interface UsageDao {
 
     @Query("SELECT * FROM daily_totals WHERE packageName = :pkg ORDER BY date DESC LIMIT 30")
     fun last30Days(pkg: String): Flow<List<DailyTotalEntity>>
+
+    @androidx.room.RawQuery
+    fun checkpointDb(query: androidx.sqlite.db.SimpleSQLiteQuery): Int
 }

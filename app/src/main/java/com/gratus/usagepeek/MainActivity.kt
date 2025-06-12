@@ -51,11 +51,15 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import org.json.JSONObject
 import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import android.view.inputmethod.InputMethodManager
+import androidx.compose.ui.platform.LocalFocusManager
 
 class MainActivity : ComponentActivity() {
 
@@ -81,7 +85,12 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             UsagePeekTheme {
-                Surface(Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                        .padding(WindowInsets.statusBars.asPaddingValues())
+                ) {
                     SettingsScreen()
                 }
             }
@@ -125,14 +134,14 @@ fun SettingsScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(12.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(end = 16.dp, bottom = 6.dp, top = 8.dp, start = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -202,16 +211,58 @@ fun SettingsScreen() {
                 .map { it.activityInfo.applicationInfo }
                 .sortedBy { pm.getApplicationLabel(it).toString().lowercase() }
         }
+
+        var searchQuery by remember { mutableStateOf("") }
+        val filteredApps = allLaunchables.filter {
+            val label = pm.getApplicationLabel(it).toString()
+            label.contains(searchQuery, ignoreCase = true)
+        }
         val enabledPkgs by AppPrefs.enabledPackages(context).collectAsState(initial = emptySet())
+
+        val context = LocalContext.current
+        val view = LocalView.current
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        val focusManager = LocalFocusManager.current
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("Search apps") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp,bottom = 2.dp, start = 16.dp, end = 16.dp)
+                .defaultMinSize(minHeight = 1.dp), // override default min height
+            shape = RoundedCornerShape(50), // rounder corners
+            singleLine = true,
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear",
+                        modifier = Modifier
+                            .clickable {
+                                searchQuery = ""
+                                imm.hideSoftInputFromWindow(view.windowToken, 0)
+                                focusManager.clearFocus()
+                            }
+                    )
+                }
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                cursorColor = MaterialTheme.colorScheme.primary
+            )
+        )
 
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),                 // take remaining height
             contentPadding = PaddingValues(vertical = 8.dp)
-        ) {
-            items(allLaunchables) { appInfo ->
-                val pkg  = appInfo.packageName
+        )  {
+            items(filteredApps) { appInfo ->
+                val pkg = appInfo.packageName
                 val name = pm.getApplicationLabel(appInfo).toString()
                 val icon = pm.getApplicationIcon(pkg)
 
