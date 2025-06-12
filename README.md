@@ -3,11 +3,8 @@
 
 ***
 
-## (3.2.a) 12/06/2025
-- Record saving process (db) probably works, needs testing.
-- Added search bar to make it easy to choose apps.
-- Overlay enabled/disabled now saved to sharedprefs.
-- Status bar takes the color of app bg.
+## (3.2.b) 13/06/2025
+- Added an app icon/s (vectorizing this took 3+hrs)
 
 # ScreenTime Overlay
 
