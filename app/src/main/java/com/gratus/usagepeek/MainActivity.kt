@@ -82,6 +82,7 @@ fun SettingsScreen() {
     /* ---------- helpers ---------- */
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val prefs = context.getSharedPreferences("prefs", Context.MODE_PRIVATE)
 
     var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var usageGranted  by remember { mutableStateOf(PermissionUtils.hasUsageAccess(context)) }
@@ -230,23 +231,25 @@ fun SettingsScreen() {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(
-                enabled = overlayGranted && !overlayRunning,
-                onClick = {
-                    context.startForegroundService(
-                        Intent(context, OverlayService::class.java)
-                    )
-                    overlayRunning = true
-                }
-            ) { Text("Start timer") }
+                Button(
+                    enabled = overlayGranted && !overlayRunning,
+                    onClick = {
+                        context.startForegroundService(
+                            Intent(context, OverlayService::class.java)
+                        )
+                        overlayRunning = true
+                        prefs.edit { putBoolean("overlay_active", true) }
+                    }
+                ) { Text("Start timer") }
 
-            Button(
-                enabled = overlayRunning,
-                onClick = {
-                    context.stopService(Intent(context, OverlayService::class.java))
-                    overlayRunning = false
-                }
-            ) { Text("Stop") }
+                Button(
+                    enabled = overlayRunning,
+                    onClick = {
+                        context.stopService(Intent(context, OverlayService::class.java))
+                        overlayRunning = false
+                        prefs.edit { putBoolean("overlay_active", false) }
+                    }
+                ) { Text("Stop") }
 
             Spacer(Modifier.weight(1f))                        // pushes Export to the right edge
 
@@ -266,7 +269,7 @@ private fun PermissionCard(
     onClick: () -> Unit
 ) {
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(4.dp),
         onClick = onClick
     ) {
         Row(
@@ -292,7 +295,7 @@ private fun exportDatabase(ctx: Context) {
         return
     }
 
-    val stamp = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.US)
+    val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault())
         .format(System.currentTimeMillis())
     val fileName = "usagepeek_$stamp.db"
 

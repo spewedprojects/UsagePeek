@@ -13,8 +13,8 @@ android {
         applicationId = "com.gratus.usagepeek"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "3.0.a" // X. Major + Y. minor + Z. patch
+        versionCode = 7
+        versionName = "3.0.c" // X. Major + Y. minor + Z. patch
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
