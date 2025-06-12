@@ -3,11 +3,12 @@
 
 ***
 
-## (3.0.c) 12/06/2025
+## (3.1.a) 12/06/2025
 - ROOM database implemented - has memory. For in-app future uses.
   - Slight changes and correction with how the records are saved in the database.
-  - Record saving process still broken.
+  - Record saving process still broken, probably. Will check now.
   - Overlay enabled/disabled now saved to sharedprefs.
+  - Status bar takes the color of app bg.
 
 # ScreenTime Overlay
 

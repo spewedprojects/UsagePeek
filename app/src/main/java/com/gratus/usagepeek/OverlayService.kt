@@ -49,6 +49,8 @@ class OverlayService : Service() {
     // Room database related
     private lateinit var dao: UsageDao
     private var lastStartTs = System.currentTimeMillis()
+    private var currentPackage = ""
+    private var sessionStart   = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -127,57 +129,79 @@ class OverlayService : Service() {
         val usageStats = getSystemService(UsageStatsManager::class.java)
 
         serviceScope.launch {
-            var currentPackage = ""
-            var lastTick    = SystemClock.elapsedRealtime()
+            try {
+                while (isActive) {
+                    val nowPkg = getforegroundPackage(usageStats, currentPackage)
+                    val now    = System.currentTimeMillis()
 
-            while (isActive) {
-                val nowPkg = foregroundPackage(usageStats, currentPackage)
-                val now    = SystemClock.elapsedRealtime()
-                val delta  = ((now - lastTick) / 1000).toInt()
+                    if (currentPackage.isBlank()) {
+                        currentPackage = nowPkg
+                        sessionStart   = now
+                    }
 
-                if (delta > 0 && currentPackage.isNotBlank()) {
-                    usageTotals.merge(currentPackage, delta.toLong()) { a, b -> a + b }
+                    if (nowPkg == currentPackage) {
+                        usageTotals.merge(nowPkg, 1L) { a, b -> a + b }
+                    } else {
+                        val durationSec = ((now - sessionStart) / 1000).toInt()
+                        if (durationSec > 0) {
+                            usageTotals.merge(currentPackage, durationSec.toLong()) { a, b -> a + b }
 
-                    serviceScope.launch {
-                        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                            .format(System.currentTimeMillis())
-                        dao.ensureAppRow(AppEntity(currentPackage, currentPackage))   // label later
-                        dao.insertSession(
-                            SessionEntity(
-                                packageName = currentPackage,
-                                startTs = lastTick,
-                                endTs   = lastTick + 1000,
-                                durationSec = 1
+                            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                                .format(System.currentTimeMillis())
+
+                            dao.ensureAppRow(AppEntity(currentPackage, currentPackage))
+                            dao.insertSession(
+                                SessionEntity(
+                                    packageName = currentPackage,
+                                    startTs     = sessionStart,
+                                    endTs       = now,
+                                    durationSec = durationSec
+                                )
                             )
+                            dao.upsertDaily(currentPackage, today, durationSec)
+                        }
+
+                        currentPackage = nowPkg
+                        sessionStart   = now
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        val show = nowPkg in overlayEnabledPkgs
+                        bubbleView.isVisible = show
+                        if (show) {
+                            val tv = bubbleView.findViewById<TextView>(R.id.bubbleText)
+                            val secs = usageTotals[nowPkg] ?: 0L
+                            tv.text = formatHMS(secs)
+                        }
+                    }
+
+                    delay(1000)
+                }
+            } finally {
+                // 🔁 Always flush the last session if cancelled (even without onDestroy)
+                val now = System.currentTimeMillis()
+                val durationSec = ((now - sessionStart) / 1000).toInt()
+                if (durationSec > 0 && currentPackage.isNotBlank()) {
+                    val today = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                        .format(System.currentTimeMillis())
+
+                    dao.ensureAppRow(AppEntity(currentPackage, currentPackage))
+                    dao.insertSession(
+                        SessionEntity(
+                            packageName = currentPackage,
+                            startTs     = sessionStart,
+                            endTs       = now,
+                            durationSec = durationSec
                         )
-                        dao.upsertDaily(currentPackage, today, 1)
-                    }
+                    )
+                    dao.upsertDaily(currentPackage, today, durationSec)
                 }
-
-                lastTick    = now
-                currentPackage = nowPkg
-
-                // update bubble only when showing on a permitted app (we'll filter later)
-                withContext(Dispatchers.Main) {
-                    val tv = bubbleView.findViewById<TextView>(R.id.bubbleText)
-                    val secs = usageTotals[nowPkg] ?: 0L
-                    tv.text  = formatHMS(secs)
-                    val show = nowPkg in overlayEnabledPkgs
-                    bubbleView.isVisible = show              // import androidx.core.view.isVisible
-                    if (show) {
-                        val secs = usageTotals[nowPkg] ?: 0L
-                        bubbleView.findViewById<TextView>(R.id.bubbleText).text = formatHMS(secs)
-                    }
-
-                }
-
-                delay(1000)       // 1-second cadence keeps CPU <1 %
             }
         }
     }
 
     // Replace your current foregroundPackage() with this version
-    private fun foregroundPackage(
+    private fun getforegroundPackage(
         usm: UsageStatsManager,
         lastKnown: String        // <-- new param
     ): String {
@@ -222,6 +246,24 @@ class OverlayService : Service() {
 
 
     override fun onDestroy() {
+        val now    = System.currentTimeMillis()
+        val durationSec = ((now - sessionStart) / 1000).toInt()
+        if (durationSec > 0 && currentPackage.isNotBlank()) {
+            runBlocking {
+                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                    .format(System.currentTimeMillis())
+
+                dao.insertSession(
+                    SessionEntity(
+                        packageName = currentPackage,
+                        startTs     = sessionStart,
+                        endTs       = now,
+                        durationSec = durationSec
+                    )
+                )
+                dao.upsertDaily(currentPackage, today, durationSec)
+            }
+        }
         super.onDestroy()
         windowManager.removeView(bubbleView)
         serviceScope.cancel()

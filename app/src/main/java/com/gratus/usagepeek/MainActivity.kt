@@ -54,6 +54,8 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.res.painterResource
 import org.json.JSONObject
 import androidx.core.content.edit
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -66,6 +68,17 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
         }
 
+        // Make the status bar transparent
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+
+        // Ensure the content draws behind the status bar
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+
+        // Set the status bar icons to light or dark based on the background
+        controller.isAppearanceLightStatusBars = isBackgroundLight()
+
         setContent {
             UsagePeekTheme {
                 Surface(Modifier.fillMaxSize()) {
@@ -74,6 +87,12 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+private fun isBackgroundLight(): Boolean {
+    // Return true if your app theme background is light. Adjust as needed.
+    // For example, if you're using dynamic theming or Material3, inspect the actual background color
+    return true  // or false based on your actual theme background
 }
 
 @Composable
@@ -131,7 +150,9 @@ fun SettingsScreen() {
                 Icon(
                     painterResource(R.drawable.github_mark),
                     contentDescription = "GitHub",
-                    Modifier.size(45.dp).padding(2.dp)
+                    Modifier
+                        .size(45.dp)
+                        .padding(2.dp)
                 )
             }
         }
@@ -226,8 +247,9 @@ fun SettingsScreen() {
         /* App list functionality ends */
         // Bottom buttons row starts
         Row(
-            modifier = Modifier.fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 0.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 0.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -269,7 +291,9 @@ private fun PermissionCard(
     onClick: () -> Unit
 ) {
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth().padding(4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(4.dp),
         onClick = onClick
     ) {
         Row(
