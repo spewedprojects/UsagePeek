@@ -114,7 +114,17 @@ fun SettingsScreen() {
 
     var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var usageGranted  by remember { mutableStateOf(PermissionUtils.hasUsageAccess(context)) }
-    var overlayRunning by remember { mutableStateOf(false) }
+    // --- replace existing overlayRunning initialization with this ---
+    val initialOverlayActive = remember {
+        // read prefs to determine whether overlay was previously started
+        val fromPrefs = prefs.getBoolean("overlay_active", false)
+        // also consider whether a saved session exists (in case overlay_active wasn't set)
+        val savedPkg = prefs.getString("session_pkg", "") ?: ""
+        val savedStart = prefs.getLong("session_start_wall", 0L)
+        fromPrefs || (savedPkg.isNotBlank() && savedStart > 0L)
+    }
+    var overlayRunning by remember { mutableStateOf(initialOverlayActive) }
+
     var panelExpanded by remember { mutableStateOf(true) }      // NEW
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -124,7 +134,14 @@ fun SettingsScreen() {
             if (ev == Lifecycle.Event.ON_RESUME) {
                 overlayGranted = Settings.canDrawOverlays(context)
                 usageGranted   = PermissionUtils.hasUsageAccess(context)
+
+                // refresh overlayRunning from persisted state or saved session
+                val fromPrefs = prefs.getBoolean("overlay_active", false)
+                val savedPkg = prefs.getString("session_pkg", "") ?: ""
+                val savedStart = prefs.getLong("session_start_wall", 0L)
+                overlayRunning = fromPrefs || (savedPkg.isNotBlank() && savedStart > 0L)
             }
+
         }
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }

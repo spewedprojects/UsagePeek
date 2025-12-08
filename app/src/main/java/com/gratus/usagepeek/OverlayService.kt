@@ -203,7 +203,30 @@ class OverlayService : Service() {
         }
 // ---------- end Place 2 ----------
 
-        // start the 1-second coroutine *once*
+        // ---------- OverlayService: seed usageTotals from today's DB totals (paste after Place 2 block in onCreate) ----------
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val today = DATE_FMT.format(java.util.Date(System.currentTimeMillis()))
+                val totals = dao.totalsForDate(today)   // new DAO call
+                for (row in totals) {
+                    // dao stores seconds as Int; keep same units (seconds)
+                    usageTotals[row.packageName] = row.seconds.toLong()
+                }
+                // optional: checkpoint to ensure DB is stable (not strictly required)
+                dao.checkpointDb(androidx.sqlite.db.SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)"))
+            } catch (e: Exception) {
+                android.util.Log.e("OverlayService", "failed to seed usageTotals", e)
+            }
+        }
+// ---------- end seed snippet ----------
+
+
+        // wait for seed to complete before starting loop (optional)
+        runBlocking {
+            val today = DATE_FMT.format(java.util.Date(System.currentTimeMillis()))
+            val totals = dao.totalsForDate(today)
+            for (row in totals) usageTotals[row.packageName] = row.seconds.toLong()
+        }
         startTimerLoop()
 
         AppPrefs.enabledPackages(this).onEach { overlayEnabledPkgs = it }
@@ -428,8 +451,17 @@ class OverlayService : Service() {
                 dao.upsertDaily(currentPackage, today, durationSec)
             }
         }
+
+        // IMPORTANT: clear persisted session state and mark overlay as inactive
+        clearSessionState() // remove session_pkg, session_start_wall, session_start_mono
+        try {
+            val prefs = getSharedPreferences("prefs", MODE_PRIVATE)
+            prefs.edit().putBoolean("overlay_active", false).apply()
+        } catch (_: Exception) { /* ignore */ }
+
         super.onDestroy()
         windowManager.removeView(bubbleView)
         serviceScope.cancel()
     }
+
 }

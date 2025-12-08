@@ -31,6 +31,12 @@ interface UsageDao {
     """)
     fun bumpDaily(pkg: String, date: String, delta: Int): Int    // returns rows updated
 
+    // ---------- DAO: add this inside UsageDao interface ----------
+    @Query("SELECT * FROM daily_totals WHERE date = :date")
+    suspend fun totalsForDate(date: String): List<DailyTotalEntity>
+// ---------- end DAO snippet ----------
+
+
     @Transaction
     suspend fun upsertDaily(pkg: String, date: String, delta: Int) {
         val changed = bumpDaily(pkg, date, delta)
