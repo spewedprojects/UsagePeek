@@ -24,9 +24,9 @@
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
-        android:icon="@drawable/app_icon"
+        android:icon="@drawable/app_icon_2"
         android:label="UsagePeek"
-        android:roundIcon="@drawable/app_icon"
+        android:roundIcon="@drawable/app_icon_2"
         android:supportsRtl="true"
         android:theme="@style/Theme.UsagePeek"
         tools:targetApi="31" >

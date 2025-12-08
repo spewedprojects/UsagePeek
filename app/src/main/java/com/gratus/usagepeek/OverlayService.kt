@@ -14,10 +14,12 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import kotlinx.coroutines.Dispatchers
 import android.app.usage.UsageEvents
+import android.util.Log
 import androidx.core.view.isVisible
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.google.type.Date
 import com.gratus.usagepeek.data.AppEntity
 import com.gratus.usagepeek.data.SessionEntity
 import com.gratus.usagepeek.data.UsageDao
@@ -53,6 +55,87 @@ class OverlayService : Service() {
     private var sessionStart   = 0L
     private var sessionCommitted = false
 
+    // ---------- Place 1 (corrected) : paste immediately AFTER `private var sessionCommitted = false` ----------
+
+    private val prefs by lazy { getSharedPreferences("prefs", MODE_PRIVATE) }
+
+    private companion object {
+        // if monotonic gap > this, we treat previous session as interrupted/rebooted
+        private const val MONO_GAP_THRESHOLD_MS = 120_000L
+        private val DATE_FMT = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    }
+
+    private fun saveSessionState(pkg: String, startWall: Long, startMono: Long) {
+        prefs.edit()
+            .putString("session_pkg", pkg)
+            .putLong("session_start_wall", startWall)
+            .putLong("session_start_mono", startMono)
+            .apply()
+    }
+
+    private fun clearSessionState() {
+        prefs.edit()
+            .remove("session_pkg")
+            .remove("session_start_wall")
+            .remove("session_start_mono")
+            .apply()
+    }
+
+    /**
+     * Commit a session safely: splits across midnight if needed, inserts SessionEntity
+     * and upserts daily totals. Runs DB ops on IO dispatcher.
+     */
+    private fun commitSession(packageName: String, startWall: Long, endWall: Long) {
+        if (packageName.isBlank() || endWall <= startWall) {
+            clearSessionState()
+            return
+        }
+
+        val startDay = DATE_FMT.format(java.util.Date(startWall))
+        val endDay = DATE_FMT.format(java.util.Date(endWall))
+
+        // use IO dispatcher for DB ops
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                // ensure app row exists
+                dao.ensureAppRow(com.gratus.usagepeek.data.AppEntity(packageName, packageName))
+
+                if (startDay == endDay) {
+                    val duration = ((endWall - startWall) / 1000).toInt().coerceAtLeast(0)
+                    if (duration > 0) {
+                        dao.insertSession(com.gratus.usagepeek.data.SessionEntity(packageName = packageName, startTs = startWall, endTs = endWall, durationSec = duration))
+                        dao.upsertDaily(packageName, startDay, duration)
+                    }
+                } else {
+                    // compute midnight millis for the start of endDay using java.util.Calendar to avoid import conflicts
+                    val cal = java.util.Calendar.getInstance().apply { timeInMillis = endWall }
+                    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                    cal.set(java.util.Calendar.MINUTE, 0)
+                    cal.set(java.util.Calendar.SECOND, 0)
+                    cal.set(java.util.Calendar.MILLISECOND, 0)
+                    val midnight = cal.timeInMillis // midnight at start of endDay
+
+                    val firstDur = ((midnight - startWall) / 1000).toInt().coerceAtLeast(0)
+                    val secondDur = ((endWall - midnight) / 1000).toInt().coerceAtLeast(0)
+
+                    if (firstDur > 0) {
+                        dao.insertSession(com.gratus.usagepeek.data.SessionEntity(packageName = packageName, startTs = startWall, endTs = midnight, durationSec = firstDur))
+                        dao.upsertDaily(packageName, startDay, firstDur)
+                    }
+                    if (secondDur > 0) {
+                        dao.insertSession(com.gratus.usagepeek.data.SessionEntity(packageName = packageName, startTs = midnight, endTs = endWall, durationSec = secondDur))
+                        dao.upsertDaily(packageName, endDay, secondDur)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("OverlayService", "commitSession DB error", e)
+            } finally {
+                clearSessionState()
+            }
+        }
+    }
+// ---------- end corrected Place 1 ----------
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -72,6 +155,54 @@ class OverlayService : Service() {
             .inflate(R.layout.overlay_bubble, null)
 
         dao = UsageDb.get(this).dao()
+        // ---------- Place 2: restore saved session (paste right after `dao = UsageDb.get(this).dao()`) ----------
+        run {
+            val savedPkg = prefs.getString("session_pkg", "") ?: ""
+            val savedStartWall = prefs.getLong("session_start_wall", 0L)
+            val savedStartMono = prefs.getLong("session_start_mono", 0L)
+
+            if (savedPkg.isNotBlank() && savedStartWall > 0L) {
+                val nowWall = System.currentTimeMillis()
+                val nowMono = SystemClock.elapsedRealtime()
+                val monoDiff = nowMono - savedStartMono
+
+                if (monoDiff > MONO_GAP_THRESHOLD_MS || nowMono < savedStartMono) {
+                    // Long gap detected (possible reboot / forced-stop). Commit a minimal safe credit
+                    val approxEnd = savedStartWall + 1000L
+                    val duration = ((approxEnd - savedStartWall) / 1000).toInt()
+                    if (duration > 0) {
+                        val date = DATE_FMT.format(java.util.Date(savedStartWall))
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                dao.ensureAppRow(com.gratus.usagepeek.data.AppEntity(savedPkg, savedPkg))
+                                dao.insertSession(com.gratus.usagepeek.data.SessionEntity(
+                                    packageName = savedPkg,
+                                    startTs = savedStartWall,
+                                    endTs = approxEnd,
+                                    durationSec = duration
+                                ))
+                                dao.upsertDaily(savedPkg, date, duration)
+                            } catch (e: Exception) {
+                                android.util.Log.e("OverlayService", "recover commit error", e)
+                            } finally {
+                                clearSessionState()
+                            }
+                        }
+                    } else {
+                        clearSessionState()
+                    }
+                } else {
+                    // treat as continuation: reconstruct wall-clock start from monotonic offset
+                    val restoredStartWall = nowWall - monoDiff
+                    sessionStart = restoredStartWall
+                    currentPackage = savedPkg
+                    sessionCommitted = false
+                    saveSessionState(currentPackage, sessionStart, SystemClock.elapsedRealtime())
+                }
+            }
+        }
+// ---------- end Place 2 ----------
+
         // start the 1-second coroutine *once*
         startTimerLoop()
 
@@ -164,33 +295,33 @@ class OverlayService : Service() {
                                 dao.checkpointDb(androidx.sqlite.db.SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)"))
                             }
                         }
+// ---------- Place 3: safe commit + reset when package changed or no foreground ----------
                     } else {
-                        val durationSec = ((now - sessionStart) / 1000).toInt()
-                        if (durationSec > 0) {
-                            usageTotals.merge(currentPackage, durationSec.toLong()) { a, b -> a + b }
+                        // commit previous session safely (handles cross-midnight split)
+                        val nowWall = System.currentTimeMillis()
 
-                            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                                .format(System.currentTimeMillis())
-
-                            dao.ensureAppRow(AppEntity(currentPackage, currentPackage))
-                            dao.insertSession(
-                                SessionEntity(
-                                    packageName = currentPackage,
-                                    startTs     = sessionStart,
-                                    endTs       = now,
-                                    durationSec = durationSec
-                                )
-                            )
-                            dao.upsertDaily(currentPackage, today, durationSec)
-                            withContext(Dispatchers.IO) {
-                                dao.checkpointDb(androidx.sqlite.db.SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)"))
-                            }
+                        if (currentPackage.isNotBlank() && sessionStart > 0L) {
+                            // Use helper commitSession (defined in Place 1)
+                            commitSession(currentPackage, sessionStart, nowWall)
+                        } else {
+                            // no active session to commit; ensure persisted state cleared
+                            clearSessionState()
                         }
 
-                        currentPackage = nowPkg
-                        sessionStart   = now
+                        // Reset in-memory trackers
+                        currentPackage = ""
+                        sessionStart = 0L
                         sessionCommitted = false
+
+                        // If new package exists, start a new session
+                        if (nowPkg.isNotBlank()) {
+                            currentPackage = nowPkg
+                            sessionStart = nowWall
+                            saveSessionState(currentPackage, sessionStart, SystemClock.elapsedRealtime())
+                        }
                     }
+// ---------- end Place 3 ----------
+
 
                     withContext(Dispatchers.Main) {
                         val show = nowPkg in overlayEnabledPkgs
@@ -230,13 +361,13 @@ class OverlayService : Service() {
         }
     }
 
-    // Replace your current foregroundPackage() with this version
+    // ---------- Place 4: replace getforegroundPackage() with this safer version ----------
     private fun getforegroundPackage(
         usm: UsageStatsManager,
-        lastKnown: String        // <-- new param
+        lastKnown: String
     ): String {
         val end   = System.currentTimeMillis()
-        val begin = end - 60_000              // look back 60 s instead of 10 s
+        val begin = end - 60_000L              // look back 60 s
 
         val events = usm.queryEvents(begin, end)
         var latestT = 0L
@@ -245,14 +376,17 @@ class OverlayService : Service() {
         val e = UsageEvents.Event()
         while (events.hasNextEvent()) {
             events.getNextEvent(e)
-            if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND &&
-                e.timeStamp     > latestT) {
+            if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND && e.timeStamp > latestT) {
                 latestT = e.timeStamp
-                latestP = e.packageName
+                latestP = e.packageName ?: ""
             }
         }
-        return if (latestP.isNotBlank()) latestP else lastKnown   // ← keep last
+
+        // If we found a recent foreground event, return it.
+        // Otherwise return empty string -> means "no foreground app", stop counting.
+        return if (latestP.isNotBlank()) latestP else ""
     }
+// ---------- end Place 4 ----------
 
     private fun formatHMS(totalSecs: Long): String {
         val h = totalSecs / 3600

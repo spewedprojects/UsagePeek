@@ -13,8 +13,8 @@ android {
         applicationId = "com.gratus.usagepeek"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "3.2.b" // X. Major + Y. minor + Z. patch
+        versionCode = 12
+        versionName = "4.1.a" // X. Major + Y. minor + Z. patch
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -47,6 +47,7 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.androidx.ui.tooling.preview.android)
+    implementation(libs.protolite.well.known.types)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

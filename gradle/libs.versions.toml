@@ -1,7 +1,7 @@
 [versions]
 activityCompose = "1.10.1"
 agp = "8.10.1"
-composeBom = "2025.06.00"
+composeBom = "2025.06.01"
 datastorePreferences = "1.1.7"
 kotlin = "2.0.21"
 coreKtx = "1.16.0"
@@ -12,13 +12,14 @@ appcompat = "1.7.1"
 kotlinxCoroutinesAndroid = "1.10.2"
 lifecycleRuntimeKtx = "2.9.1"
 material = "1.12.0"
-roomCompiler = "2.7.1"
-roomKtx = "2.7.1"
-roomRuntime = "2.7.1"
-workRuntimeKtx = "2.10.1"
-uiToolingPreviewAndroid = "1.8.2"
+roomCompiler = "2.7.2"
+roomKtx = "2.7.2"
+roomRuntime = "2.7.2"
+workRuntimeKtx = "2.10.2"
+uiToolingPreviewAndroid = "1.8.3"
 ksp = "2.1.21-2.0.1"
 impress = "0.0.3"
+protoliteWellKnownTypes = "18.0.1"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
@@ -42,7 +43,7 @@ androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutinesAndroid" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 androidx-ui-tooling-preview-android = { group = "androidx.compose.ui", name = "ui-tooling-preview-android", version.ref = "uiToolingPreviewAndroid" }
-impress = { group = "com.google.ar", name = "impress", version.ref = "impress" }
+protolite-well-known-types = { group = "com.google.firebase", name = "protolite-well-known-types", version.ref = "protoliteWellKnownTypes" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
