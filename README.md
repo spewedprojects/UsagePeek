@@ -3,15 +3,16 @@
 
 ***
 
-## (3.2.b) 13/06/2025
-- Added an app icon/s (vectorizing this took 3+hrs)
+## (4.2.a) 08/12/2025
+- New app icon
+- Fixed longest standing bugs.
 
-# ScreenTime Overlay
+# UsagePeek
 
 **A simple, non-intrusive overlay to track your daily app usage, right on your screen.**  
 
 ### Overview  
-ScreenTime Overlay is a lightweight utility designed to help users stay mindful of their app usage without disrupting their workflow. It adds a small, transparent timer to every selected app, showing how much time you've spent on it throughout the day.  
+UsagePeek is a lightweight utility designed to help users stay mindful of their app usage without disrupting their workflow. It adds a small, transparent timer to every selected app, showing how much time you've spent on it throughout the day.  
 
 ### ✨ Features  
 - **Minimalist overlay** – Displays only the time spent, no extra distractions.  
