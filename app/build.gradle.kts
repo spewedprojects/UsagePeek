@@ -14,7 +14,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 14
-        versionName = "4.3.a" // X. Major + Y. minor + Z. patch
+        versionName = "5.1.a" // X. Major + Y. minor + Z. patch
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
