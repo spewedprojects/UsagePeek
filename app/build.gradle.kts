@@ -7,14 +7,14 @@ plugins {
 
 android {
     namespace = "com.gratus.usagepeek"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.gratus.usagepeek"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 13
-        versionName = "4.2.a" // X. Major + Y. minor + Z. patch
+        targetSdk = 36
+        versionCode = 14
+        versionName = "4.3.a" // X. Major + Y. minor + Z. patch
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

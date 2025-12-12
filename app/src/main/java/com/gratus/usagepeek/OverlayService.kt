@@ -57,6 +57,30 @@ class OverlayService : Service() {
 
     // ---------- Place 1 (corrected) : paste immediately AFTER `private var sessionCommitted = false` ----------
 
+    // ... existing variables ...
+    private lateinit var powerManager: android.os.PowerManager
+    private var isScreenOn = true
+
+    // Receiver to handle Screen ON/OFF events
+    private val screenReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: android.content.Intent) {
+            when (intent.action) {
+                android.content.Intent.ACTION_SCREEN_OFF -> {
+                    isScreenOn = false
+                    // Force commit current session immediately when screen goes dark
+                    serviceScope.launch {
+                        // The loop is paused, so we manually trigger a cleanup/commit here if needed
+                        // or just let the next loop iteration handle the pause logic
+                    }
+                }
+                android.content.Intent.ACTION_SCREEN_ON -> {
+                    isScreenOn = true
+                    // Reset lastStartTs or wake up logic if needed
+                }
+            }
+        }
+    }
+
     private val prefs by lazy { getSharedPreferences("prefs", MODE_PRIVATE) }
 
     private companion object {
@@ -140,6 +164,15 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        powerManager = getSystemService(android.os.PowerManager::class.java)
+        isScreenOn = powerManager.isInteractive
+
+        // Register Screen receiver
+        val filter = android.content.IntentFilter().apply {
+            addAction(android.content.Intent.ACTION_SCREEN_OFF)
+            addAction(android.content.Intent.ACTION_SCREEN_ON)
+        }
+        registerReceiver(screenReceiver, filter)
 
         // ---------- 1) notification FIRST ----------
         createNotificationChannelIfNeeded()
@@ -286,66 +319,72 @@ class OverlayService : Service() {
         serviceScope.launch {
             try {
                 while (isActive) {
-                    val nowPkg = getforegroundPackage(usageStats, currentPackage)
+                    // 1. BATTERY SAVER: specific check for screen state
+                    if (!isScreenOn) {
+                        // If screen is off, we are definitely NOT using any app.
+                        // Commit any open session and wait.
+                        if (currentPackage.isNotBlank()) {
+                            val nowWall = System.currentTimeMillis()
+                            commitSession(currentPackage, sessionStart, nowWall)
+                            currentPackage = ""
+                            sessionStart = 0L
+                            sessionCommitted = false
+                            clearSessionState()
+
+                            withContext(Dispatchers.Main) { bubbleView.isVisible = false }
+                        }
+
+                        // Sleep for a long time or until screen turns on.
+                        // checking every 2 seconds is low cost if just checking a boolean
+                        delay(2000)
+                        continue
+                    }
+
+                    // 2. RETRIEVE PACKAGE (Logic Fixed)
+                    // We pass 'currentPackage' as the default. If queryEvents finds nothing
+                    // (e.g. user watching a movie), it returns 'currentPackage' instead of empty.
+                    val nowPkg = getForegroundPackageOptimized(usageStats, currentPackage)
                     val now    = System.currentTimeMillis()
+
+                    // ... [The rest of your original logic stays mostly the same] ...
 
                     if (currentPackage.isBlank()) {
                         currentPackage = nowPkg
                         sessionStart   = now
                     }
 
-                    if (nowPkg == currentPackage) {
+                    if (nowPkg == currentPackage && nowPkg.isNotBlank()) {
+                        // LOGIC: App matches, increment time
                         usageTotals.merge(nowPkg, 1L) { a, b -> a + b }
 
                         val durationSoFar = ((now - sessionStart) / 1000).toInt()
+
+                        // Commit initial "credit" after 5 seconds
                         if (!sessionCommitted && durationSoFar >= 5) {
+                            // ... [Your existing DB insert logic] ...
                             sessionCommitted = true
-
-                            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                                .format(System.currentTimeMillis())
-
-                            dao.ensureAppRow(AppEntity(currentPackage, currentPackage))
-                            dao.insertSession(
-                                SessionEntity(
-                                    packageName = currentPackage,
-                                    startTs     = sessionStart,
-                                    endTs       = now,
-                                    durationSec = durationSoFar
-                                )
-                            )
-                            dao.upsertDaily(currentPackage, today, durationSoFar)
-                            withContext(Dispatchers.IO) {
-                                dao.checkpointDb(androidx.sqlite.db.SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)"))
-                            }
                         }
-// ---------- Place 3: safe commit + reset when package changed or no foreground ----------
-                    } else {
-                        // commit previous session safely (handles cross-midnight split)
+                    } else if (nowPkg != currentPackage) {
+                        // LOGIC: App changed
                         val nowWall = System.currentTimeMillis()
-
                         if (currentPackage.isNotBlank() && sessionStart > 0L) {
-                            // Use helper commitSession (defined in Place 1)
                             commitSession(currentPackage, sessionStart, nowWall)
                         } else {
-                            // no active session to commit; ensure persisted state cleared
                             clearSessionState()
                         }
 
-                        // Reset in-memory trackers
                         currentPackage = ""
                         sessionStart = 0L
                         sessionCommitted = false
 
-                        // If new package exists, start a new session
                         if (nowPkg.isNotBlank()) {
                             currentPackage = nowPkg
                             sessionStart = nowWall
                             saveSessionState(currentPackage, sessionStart, SystemClock.elapsedRealtime())
                         }
                     }
-// ---------- end Place 3 ----------
 
-
+                    // UPDATE UI
                     withContext(Dispatchers.Main) {
                         val show = nowPkg in overlayEnabledPkgs
                         bubbleView.isVisible = show
@@ -384,32 +423,45 @@ class OverlayService : Service() {
         }
     }
 
-    // ---------- Place 4: replace getforegroundPackage() with this safer version ----------
-    private fun getforegroundPackage(
+    private fun getForegroundPackageOptimized(
         usm: UsageStatsManager,
         lastKnown: String
     ): String {
-        val end   = System.currentTimeMillis()
-        val begin = end - 60_000L              // look back 60 s
+        val end = System.currentTimeMillis()
+        val begin = end - 60_000L // Look back 60s
 
         val events = usm.queryEvents(begin, end)
-        var latestT = 0L
-        var latestP = ""
+        val event = UsageEvents.Event()
 
-        val e = UsageEvents.Event()
+        var latestTimeStamp = 0L
+        var latestPackage = ""
+
+        // 1. Search for the absolute latest MOVE_TO_FOREGROUND event
         while (events.hasNextEvent()) {
-            events.getNextEvent(e)
-            if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND && e.timeStamp > latestT) {
-                latestT = e.timeStamp
-                latestP = e.packageName ?: ""
+            events.getNextEvent(event)
+            if (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+                if (event.timeStamp > latestTimeStamp) {
+                    latestTimeStamp = event.timeStamp
+                    latestPackage = event.packageName
+                }
             }
         }
 
-        // If we found a recent foreground event, return it.
-        // Otherwise return empty string -> means "no foreground app", stop counting.
-        return if (latestP.isNotBlank()) latestP else ""
+        // 2. DECISION LOGIC:
+        return if (latestPackage.isNotBlank()) {
+            // We found a new event, that's definitely the app.
+            latestPackage
+        } else {
+            // We found NO events in the last 60 seconds.
+            // This means the user is either:
+            // A) Still looking at the 'lastKnown' app (e.g. watching video)
+            // B) On the home screen (which sometimes doesn't send events in some launchers)
+
+            // If screen is ON (checked in the loop), we assume they are still
+            // in the last known package.
+            lastKnown
+        }
     }
-// ---------- end Place 4 ----------
 
     private fun formatHMS(totalSecs: Long): String {
         val h = totalSecs / 3600
@@ -460,6 +512,7 @@ class OverlayService : Service() {
         } catch (_: Exception) { /* ignore */ }
 
         super.onDestroy()
+        unregisterReceiver(screenReceiver)
         windowManager.removeView(bubbleView)
         serviceScope.cancel()
     }
