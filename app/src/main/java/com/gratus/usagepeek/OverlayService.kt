@@ -21,11 +21,12 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.type.Date
 import com.gratus.usagepeek.data.AppEntity
-import com.gratus.usagepeek.data.SessionEntity
 import com.gratus.usagepeek.data.UsageDao
 import com.gratus.usagepeek.data.UsageDb
 import com.gratus.usagepeek.data.ResetWorker
 import kotlinx.coroutines.*                        // NEW
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import java.text.SimpleDateFormat
@@ -83,10 +84,12 @@ class OverlayService : Service() {
 
     private val prefs by lazy { getSharedPreferences("prefs", MODE_PRIVATE) }
 
-    private companion object {
+    companion object {
         // if monotonic gap > this, we treat previous session as interrupted/rebooted
         private const val MONO_GAP_THRESHOLD_MS = 120_000L
         private val DATE_FMT = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        private val _isRunning = MutableStateFlow(false)
+        val isRunning: StateFlow<Boolean> = _isRunning
     }
 
     private fun saveSessionState(pkg: String, startWall: Long, startMono: Long) {
@@ -127,7 +130,7 @@ class OverlayService : Service() {
                 if (startDay == endDay) {
                     val duration = ((endWall - startWall) / 1000).toInt().coerceAtLeast(0)
                     if (duration > 0) {
-                        dao.insertSession(com.gratus.usagepeek.data.SessionEntity(packageName = packageName, startTs = startWall, endTs = endWall, durationSec = duration))
+
                         dao.upsertDaily(packageName, startDay, duration)
                     }
                 } else {
@@ -143,11 +146,11 @@ class OverlayService : Service() {
                     val secondDur = ((endWall - midnight) / 1000).toInt().coerceAtLeast(0)
 
                     if (firstDur > 0) {
-                        dao.insertSession(com.gratus.usagepeek.data.SessionEntity(packageName = packageName, startTs = startWall, endTs = midnight, durationSec = firstDur))
+
                         dao.upsertDaily(packageName, startDay, firstDur)
                     }
                     if (secondDur > 0) {
-                        dao.insertSession(com.gratus.usagepeek.data.SessionEntity(packageName = packageName, startTs = midnight, endTs = endWall, durationSec = secondDur))
+
                         dao.upsertDaily(packageName, endDay, secondDur)
                     }
                 }
@@ -164,6 +167,7 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        _isRunning.value = true
         powerManager = getSystemService(android.os.PowerManager::class.java)
         isScreenOn = powerManager.isInteractive
 
@@ -208,12 +212,7 @@ class OverlayService : Service() {
                         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                             try {
                                 dao.ensureAppRow(com.gratus.usagepeek.data.AppEntity(savedPkg, savedPkg))
-                                dao.insertSession(com.gratus.usagepeek.data.SessionEntity(
-                                    packageName = savedPkg,
-                                    startTs = savedStartWall,
-                                    endTs = approxEnd,
-                                    durationSec = duration
-                                ))
+
                                 dao.upsertDaily(savedPkg, date, duration)
                             } catch (e: Exception) {
                                 android.util.Log.e("OverlayService", "recover commit error", e)
@@ -406,14 +405,6 @@ class OverlayService : Service() {
                         .format(System.currentTimeMillis())
 
                     dao.ensureAppRow(AppEntity(currentPackage, currentPackage))
-                    dao.insertSession(
-                        SessionEntity(
-                            packageName = currentPackage,
-                            startTs     = sessionStart,
-                            endTs       = now,
-                            durationSec = durationSec
-                        )
-                    )
                     dao.upsertDaily(currentPackage, today, durationSec)
                     withContext(Dispatchers.IO) {
                         dao.checkpointDb(androidx.sqlite.db.SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)"))
@@ -485,6 +476,7 @@ class OverlayService : Service() {
 
 
     override fun onDestroy() {
+        _isRunning.value = false
         val now    = System.currentTimeMillis()
         val durationSec = ((now - sessionStart) / 1000).toInt()
         if (durationSec > 0 && currentPackage.isNotBlank()) {
@@ -492,14 +484,6 @@ class OverlayService : Service() {
                 val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                     .format(System.currentTimeMillis())
 
-                dao.insertSession(
-                    SessionEntity(
-                        packageName = currentPackage,
-                        startTs     = sessionStart,
-                        endTs       = now,
-                        durationSec = durationSec
-                    )
-                )
                 dao.upsertDaily(currentPackage, today, durationSec)
             }
         }

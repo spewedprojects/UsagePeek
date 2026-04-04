@@ -6,8 +6,9 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [AppEntity::class, SessionEntity::class, DailyTotalEntity::class],
-    version = 1, exportSchema = false
+    entities = [AppEntity::class, DailyTotalEntity::class], // Removed SessionEntity
+    version = 2, // Bumped to 2
+    exportSchema = false
 )
 abstract class UsageDb : RoomDatabase() {
     abstract fun dao(): UsageDao
@@ -20,7 +21,9 @@ abstract class UsageDb : RoomDatabase() {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     UsageDb::class.java, "usagepeek.db"
-                ).build().also { INSTANCE = it }
+                )
+                    .fallbackToDestructiveMigration() // Clears old data to match new schema
+                    .build().also { INSTANCE = it }
             }
     }
 }

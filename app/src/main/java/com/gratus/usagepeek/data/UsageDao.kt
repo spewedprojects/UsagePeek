@@ -12,9 +12,6 @@ interface UsageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun ensureAppRow(app: AppEntity)
 
-    @Insert
-    suspend fun insertSession(s: SessionEntity)
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDaily(d: DailyTotalEntity)
 

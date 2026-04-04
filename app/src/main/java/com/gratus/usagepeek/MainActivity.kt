@@ -59,7 +59,10 @@ import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.view.inputmethod.InputMethodManager
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.ui.platform.LocalFocusManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -72,37 +75,24 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
         }
 
-        // Make the status bar transparent
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-
-        // Ensure the content draws behind the status bar
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-
-        // Set the status bar icons to light or dark based on the background
-        controller.isAppearanceLightStatusBars = isBackgroundLight()
-
         setContent {
             UsagePeekTheme {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
-                        .padding(WindowInsets.statusBars.asPaddingValues())
-                ) {
-                    SettingsScreen()
+                // 2. Scaffold is the "magic" that fixes text color.
+                // It looks at the theme (Light/Dark) and sets the text color to contrast.
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    // This ensures content doesn't hide under status/nav bars
+                    contentWindowInsets = WindowInsets.safeDrawing
+                ) { innerPadding ->
+                    Box(modifier = Modifier.padding(innerPadding)) {
+                        SettingsScreen()
+                    }
                 }
             }
         }
     }
 }
 
-private fun isBackgroundLight(): Boolean {
-    // Return true if your app theme background is light. Adjust as needed.
-    // For example, if you're using dynamic theming or Material3, inspect the actual background color
-    return true  // or false based on your actual theme background
-}
 
 @Composable
 fun SettingsScreen() {
@@ -114,16 +104,9 @@ fun SettingsScreen() {
 
     var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var usageGranted  by remember { mutableStateOf(PermissionUtils.hasUsageAccess(context)) }
+
     // --- replace existing overlayRunning initialization with this ---
-    val initialOverlayActive = remember {
-        // read prefs to determine whether overlay was previously started
-        val fromPrefs = prefs.getBoolean("overlay_active", false)
-        // also consider whether a saved session exists (in case overlay_active wasn't set)
-        val savedPkg = prefs.getString("session_pkg", "") ?: ""
-        val savedStart = prefs.getLong("session_start_wall", 0L)
-        fromPrefs || (savedPkg.isNotBlank() && savedStart > 0L)
-    }
-    var overlayRunning by remember { mutableStateOf(initialOverlayActive) }
+    val overlayRunning by OverlayService.isRunning.collectAsState()
 
     var panelExpanded by remember { mutableStateOf(true) }      // NEW
 
@@ -139,7 +122,6 @@ fun SettingsScreen() {
                 val fromPrefs = prefs.getBoolean("overlay_active", false)
                 val savedPkg = prefs.getString("session_pkg", "") ?: ""
                 val savedStart = prefs.getLong("session_start_wall", 0L)
-                overlayRunning = fromPrefs || (savedPkg.isNotBlank() && savedStart > 0L)
             }
 
         }
@@ -278,16 +260,22 @@ fun SettingsScreen() {
                 .weight(1f),                 // take remaining height
             contentPadding = PaddingValues(vertical = 8.dp)
         )  {
-            items(filteredApps) { appInfo ->
+            items(
+                items = filteredApps,
+                key = { it.packageName }
+            ) { appInfo ->
                 val pkg = appInfo.packageName
                 val name = pm.getApplicationLabel(appInfo).toString()
-                val icon = pm.getApplicationIcon(pkg)
+
+                // RE-REMEMBER THE ICON TIED TO THE PACKAGE
+                val icon = remember(pkg) {
+                    pm.getApplicationIcon(pkg).toBitmap().asImageBitmap()
+                }
 
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .clickable {
-                            // toggle on row tap
                             scope.launch {
                                 AppPrefs.setEnabled(context, pkg, pkg !in enabledPkgs)
                             }
@@ -296,12 +284,16 @@ fun SettingsScreen() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Image(
-                        painter = remember { BitmapPainter(icon.toBitmap().asImageBitmap()) },
+                        painter = BitmapPainter(icon),
                         contentDescription = null,
                         modifier = Modifier.size(32.dp)
                     )
                     Spacer(Modifier.width(16.dp))
-                    Text(name, Modifier.weight(1f))
+                    Text(
+                        text = name,
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onBackground // Fix for dark mode text
+                    )
                     Switch(
                         checked = pkg in enabledPkgs,
                         onCheckedChange = {
@@ -309,7 +301,7 @@ fun SettingsScreen() {
                         }
                     )
                 }
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
         /* App list functionality ends */
@@ -317,7 +309,7 @@ fun SettingsScreen() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 0.dp),
+                .padding(start = 16.dp, end = 16.dp, bottom = 0.dp, top = 0.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -327,7 +319,7 @@ fun SettingsScreen() {
                         context.startForegroundService(
                             Intent(context, OverlayService::class.java)
                         )
-                        overlayRunning = true
+
                         prefs.edit { putBoolean("overlay_active", true) }
                     }
                 ) { Text("Start timer") }
@@ -336,7 +328,7 @@ fun SettingsScreen() {
                     enabled = overlayRunning,
                     onClick = {
                         context.stopService(Intent(context, OverlayService::class.java))
-                        overlayRunning = false
+
                         prefs.edit { putBoolean("overlay_active", false) }
                     }
                 ) { Text("Stop") }
@@ -344,8 +336,11 @@ fun SettingsScreen() {
             Spacer(Modifier.weight(1f))                        // pushes Export to the right edge
 
             /* export button */
+            /* export button */
             OutlinedButton(
-                onClick = { exportDatabase(context) }
+                onClick = {
+                    scope.launch { exportDatabase(context) }
+                }
             ) { Text("Save DB") }
         }
         // Buttons row ends
@@ -380,14 +375,21 @@ private fun PermissionCard(
     }
 }
 
-private fun exportDatabase(ctx: Context) {
+private suspend fun exportDatabase(ctx: Context) = withContext(Dispatchers.IO) {
+    // 1. Force Room to flush the -wal file into the main .db file
+    com.gratus.usagepeek.data.UsageDb.get(ctx).dao().checkpointDb(
+        androidx.sqlite.db.SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)")
+    )
+
     val src = ctx.getDatabasePath("usagepeek.db")
     if (!src.exists()) {
-        Toast.makeText(ctx, "Database not found", Toast.LENGTH_SHORT).show()
-        return
+        withContext(Dispatchers.Main) {
+            Toast.makeText(ctx, "Database not found", Toast.LENGTH_SHORT).show()
+        }
+        return@withContext
     }
 
-    val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault())
+    val stamp = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.getDefault())
         .format(System.currentTimeMillis())
     val fileName = "usagepeek_$stamp.db"
 
@@ -400,11 +402,12 @@ private fun exportDatabase(ctx: Context) {
             put(MediaStore.Files.FileColumns.IS_PENDING, 1)
         }
 
-        val uri = ctx.contentResolver.insert(
-            MediaStore.Files.getContentUri("external"), values
-        ) ?: run {
-            Toast.makeText(ctx, "Failed to create file", Toast.LENGTH_SHORT).show()
-            return
+        val uri = ctx.contentResolver.insert(MediaStore.Files.getContentUri("external"), values)
+        if (uri == null) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(ctx, "Failed to create file", Toast.LENGTH_SHORT).show()
+            }
+            return@withContext
         }
 
         ctx.contentResolver.openOutputStream(uri)?.use { out ->
@@ -415,18 +418,21 @@ private fun exportDatabase(ctx: Context) {
         values.put(MediaStore.Files.FileColumns.IS_PENDING, 0)
         ctx.contentResolver.update(uri, values, null, null)
 
-        Toast.makeText(ctx, "Saved to Documents/UsagePeekExports", Toast.LENGTH_LONG).show()
+        withContext(Dispatchers.Main) {
+            Toast.makeText(ctx, "Saved to Documents/UsagePeekExports", Toast.LENGTH_LONG).show()
+        }
 
     } else {
         /* ---------- Android 9 and below ---------- */
-        if (ctx.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                (ctx as Activity),                    // call from activity context
-                arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
-                101
-            )
-            return
+        if (ctx.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            withContext(Dispatchers.Main) {
+                ActivityCompat.requestPermissions(
+                    (ctx as Activity),
+                    arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                    101
+                )
+            }
+            return@withContext
         }
 
         val destDir = File(
@@ -437,8 +443,9 @@ private fun exportDatabase(ctx: Context) {
         val dest = File(destDir, fileName)
         src.inputStream().use { it.copyTo(dest.outputStream()) }
 
-        Toast.makeText(ctx, "Saved to ${dest.relativeTo(Environment.getExternalStorageDirectory())}",
-            Toast.LENGTH_LONG).show()
+        withContext(Dispatchers.Main) {
+            Toast.makeText(ctx, "Saved to ${dest.relativeTo(Environment.getExternalStorageDirectory())}", Toast.LENGTH_LONG).show()
+        }
     }
 }
 
