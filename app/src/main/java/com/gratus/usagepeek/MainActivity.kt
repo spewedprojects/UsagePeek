@@ -194,6 +194,7 @@ fun SettingsScreen() {
         // ---- put below Spacer(24.dp) in SettingsScreen() ----
 
         /* App list functionality starts */
+        /* App list functionality starts */
         val pm = context.packageManager
         val allLaunchables = remember {
             val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
@@ -206,14 +207,15 @@ fun SettingsScreen() {
                 @Suppress("DEPRECATION")
                 pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
             }
-            infos
-                .map { it.activityInfo.applicationInfo }
-                .sortedBy { pm.getApplicationLabel(it).toString().lowercase() }
+
+            // We keep the activity name to ensure uniqueness
+            infos.map { it.activityInfo }
+                .sortedBy { pm.getApplicationLabel(it.applicationInfo).toString().lowercase() }
         }
 
         var searchQuery by remember { mutableStateOf("") }
         val filteredApps = allLaunchables.filter {
-            val label = pm.getApplicationLabel(it).toString()
+            val label = pm.getApplicationLabel(it.applicationInfo).toString()
             label.contains(searchQuery, ignoreCase = true)
         }
         val enabledPkgs by AppPrefs.enabledPackages(context).collectAsState(initial = emptySet())
@@ -257,19 +259,21 @@ fun SettingsScreen() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),                 // take remaining height
+                .weight(1f),
             contentPadding = PaddingValues(vertical = 8.dp)
-        )  {
+        ) {
             items(
                 items = filteredApps,
-                key = { it.packageName }
-            ) { appInfo ->
-                val pkg = appInfo.packageName
+                // The key is now unique even if the package name is repeated
+                key = { "${it.packageName}_${it.name}" }
+            ) { activityInfo ->
+                val pkg = activityInfo.packageName
+                val appInfo = activityInfo.applicationInfo
                 val name = pm.getApplicationLabel(appInfo).toString()
 
-                // RE-REMEMBER THE ICON TIED TO THE PACKAGE
+                // Icon loading stays efficient with remember(pkg)
                 val icon = remember(pkg) {
-                    pm.getApplicationIcon(pkg).toBitmap().asImageBitmap()
+                    pm.getApplicationIcon(appInfo).toBitmap().asImageBitmap()
                 }
 
                 Row(
